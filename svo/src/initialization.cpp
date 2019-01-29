@@ -226,6 +226,17 @@ void trackKlt(
   }
 }
 
+/**
+ * @brief 计算单应矩阵
+ * 
+ * @param[in] f_ref                   参考帧下特征点的空间坐标
+ * @param[in] f_cur                   当前帧下特征点的空间坐标
+ * @param[in] focal_length            相机焦距
+ * @param[in] reprojection_threshold  重投影阈值
+ * @param[out] inliers                内点数目
+ * @param[out] xyz_in_cur             三角化后的点的数目 
+ * @param[in] T_cur_from_ref          从参考帧到当前帧相机所发生的变换
+ */
 void computeHomography(
     const vector<Vector3d>& f_ref,
     const vector<Vector3d>& f_cur,
@@ -235,6 +246,7 @@ void computeHomography(
     vector<Vector3d>& xyz_in_cur,
     SE3& T_cur_from_ref)
 {
+  //step 1 得到当前帧和参考帧中的特征点坐标
   vector<Vector2d > uv_ref(f_ref.size());
   vector<Vector2d > uv_cur(f_cur.size());
   for(size_t i=0, i_max=f_ref.size(); i<i_max; ++i)
@@ -242,13 +254,31 @@ void computeHomography(
     uv_ref[i] = vk::project2d(f_ref[i]);
     uv_cur[i] = vk::project2d(f_cur[i]);
   }
-  vk::Homography Homography(uv_ref, uv_cur, focal_length, reprojection_threshold);
+
+  //step 2 构造一个可以对单应矩阵进行计算和操作的单应矩阵对象
+  vk::Homography Homography(
+      uv_ref,                   //参考帧中的特征点坐标
+      uv_cur,                   //当前帧中的特征点坐标
+      focal_length,             //相机镜头的焦距
+      reprojection_threshold);  //重投影误差
+
+  //step 3 从特征点的匹配关系中计算相机的运动 R,t
   Homography.computeSE3fromMatches();
+
+  //step 4 计算那些符合最终单应变换的内点
   vector<int> outliers;
-  vk::computeInliers(f_cur, f_ref,
-                     Homography.T_c2_from_c1.rotation_matrix(), Homography.T_c2_from_c1.translation(),
-                     reprojection_threshold, focal_length,
-                     xyz_in_cur, inliers, outliers);
+  vk::computeInliers(
+    f_cur,                                        //当前帧特征点的像素坐标
+    f_ref,                                        //参考帧特征点的像素坐标
+    Homography.T_c2_from_c1.rotation_matrix(),    //输出,旋转矩阵
+    Homography.T_c2_from_c1.translation(),        //输出,平移矩阵
+    reprojection_threshold,                       //重投影误差的阈值
+    focal_length,                                 //相机焦距长度
+    xyz_in_cur,                                   //三角化之后得到的空间点集
+    inliers,                                      //内点标记
+    outliers);                                    //外点标记
+
+  //最终获得从参考帧到当前帧相机运动的变换矩阵                   
   T_cur_from_ref = Homography.T_c2_from_c1;
 }
 
